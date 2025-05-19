@@ -3,6 +3,16 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 declare_id!("9Dt3WPawaT6Jf2aTxauKRhsmrBAn84zA3Mi5uitaWZs3");
 
+#[error_code]
+pub enum VestingError {
+    #[msg("You are not authorized to perform this action.")]
+    Unauthorized,
+    #[msg("Invalid percentage.")]
+    InvalidPercentage,
+    #[msg("Nothing available to claim.")]
+    NothingToClaim,
+}
+
 
 #[program]
 pub mod simple_token_vesting {
@@ -18,12 +28,14 @@ pub mod simple_token_vesting {
         config.decimals = decimals;
         config.percent_available = 0;
         
-        authority_seeds = &[
+        let token_program = ctx.accounts.token_program.to_account_info();
+        
+        let authority_seeds = &[
         b"authority".as_ref(),
         &[ctx.bumps.authority],
         ];
         
-        let signer = &[authority_seeds[..]];
+        let signer = &[&authority_seeds[..]];
         
         let transfer = token::Transfer {
             from: ctx.accounts.from_token_account.to_account_info(),
@@ -38,26 +50,23 @@ pub mod simple_token_vesting {
     }
     
     pub fn release(ctx: Context<Release>, percent: u8) -> Result<()> {
-        let config = &ctx.accounts.config;
-        let beneficiary = &mut ctx.accounts.beneficiary;
+        let config = &mut ctx.accounts.config;
 
         require!(
-            ctc.accounts.authority.key() == config.authority,
+            ctx.accounts.authority.key() == config.authority,
             VestingError::Unauthorized
         ); 
 
-        require!(percent <= 100, VestingError::InvalidPercentage)
-            
+        require!(percent <= 100, VestingError::InvalidPercentage);
         config.percent_available = percent;
+
         Ok(())
     }
     
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
-        let beneficiary = ctx.accounts.beneficiary;
-        let config = ctx.accounts.config;
-
-        let percent = config.percent_available;
-        let total_tokens = beneficiary.total_tokens;
+        let beneficiary = &mut ctx.accounts.beneficiary;
+        let config = &ctx.accounts.config;
+        let config_key = config.key();
 
         let max_claimable =
             (beneficiary.total_tokens * config.percent_available as u64) / 100;
@@ -66,26 +75,26 @@ pub mod simple_token_vesting {
         require!(claimable_now > 0, VestingError::NothingToClaim);
 
         let escrow_wallet_seeds = &[
-            b"escrow", config.key().as_ref(),
+            b"escrow", config_key.as_ref(),
             &[ctx.bumps.escrow_wallet]
             ];
 
-        let signer = &[seeds[..]];
+        let signer = &[&escrow_wallet_seeds[..]];
 
         let transfer = token::Transfer {
             from: ctx.accounts.escrow_wallet.to_account_info(),
-            to: ctx.accounts.beneficiary.to_account_info(),
-            autority: ctx.accounts.authority.to_account_info()
-        }
+            to: beneficiary.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info()
+        };
 
         let cpi_ctx = CpiContext::new_with_signer (
             ctx.accounts.token_program.to_account_info(),
             transfer,
             signer 
-        )
+        );
         
-        token::transfer {cpi_ctx, claimed_now}
-        beneficiary.claimed_tokens += claimed_now;        
+        token::transfer (cpi_ctx, claimable_now);
+        beneficiary.claimed_tokens += claimable_now;        
 
         Ok(())
     }
@@ -115,7 +124,7 @@ pub struct Initialize<'info> {
     
     /// CHECK: This PDA is used only as a signing authority, no data is read or written.
     #[account(
-        seeds = [b"authority", escrow_wallet.key().as_ref()],
+        seeds = [b"authority"],
         bump,
     )]
     pub authority: AccountInfo<'info>,
@@ -131,6 +140,61 @@ pub struct Initialize<'info> {
 
 }
 
+#[derive(Accounts)]
+pub struct Claim<'info> {
+    #[account(
+        seeds = [b"config_vesting"],
+        bump,
+    )]
+    pub config: Account<'info, ConfigVesting>,
+
+    #[account(
+        seeds = [b"beneficiary"],
+        bump,
+    )]
+    pub beneficiary: Account<'info, Beneficiary>,
+    
+    #[account(
+    seeds = [b"escrow", config.key().as_ref()],
+    bump,
+    token::mint = token_mint,
+    token::authority = authority // Or a PDA signer
+    )]
+    pub escrow_wallet: Account<'info, TokenAccount>,
+    
+    /// CHECK: This PDA is used only as a signing authority, no data is read or written.
+    #[account(
+        seeds = [b"authority"],
+        bump,
+    )]
+    pub authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(mut)]
+    pub token_mint: Account<'info, Mint>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+
+}
+
+#[derive(Accounts)]
+pub struct Release<'info>{
+    #[account(
+        seeds = [b"config_vesting"],
+        bump,
+    )]
+    pub config: Account<'info, ConfigVesting>,
+    
+    /// CHECK: This PDA is used only as a signing authority, no data is read or written.
+    #[account(
+        seeds = [b"authority"],
+        bump,
+    )]
+    pub authority: AccountInfo<'info>,
+}
+
 #[account]
 pub struct ConfigVesting {
     pub authority: Pubkey, 
@@ -140,7 +204,7 @@ pub struct ConfigVesting {
     pub percent_available: u8  
 }
 
-#[accounts]
+#[account]
 pub struct Beneficiary {
     beneficiary: Pubkey,
     total_tokens: u64,
