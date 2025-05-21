@@ -64,6 +64,24 @@ describe("simple_token_vesting", () => {
     await mintTo(provider.connection, user, token_mint, admin_token_account, user, 1500);
   });
 
+  it("Add a beneficiary", async () => {
+    
+    const total_tokens = 200;
+
+    await program.methods
+      .addBeneficiary(
+      new anchor.BN(total_tokens),
+      new anchor.BN(beneficiary_wallet.toBuffer()),
+      )
+      .accounts({
+          beneficiary_data: beneficiary_data,
+          user: user,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+  });
+
   it("Initialize vesting", async () => {
 
     const adminTokenAccountBefore = await getAccount(provider.connection, admin_token_account);
@@ -116,7 +134,6 @@ describe("simple_token_vesting", () => {
         })
         .signers([user])
         .rpc();
-
   });
 
   it("Claim vesting", async () => {

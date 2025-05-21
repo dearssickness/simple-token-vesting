@@ -1,3 +1,5 @@
+use std::io::Sink;
+
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
@@ -18,6 +20,14 @@ pub mod simple_token_vesting {
 
     use super::*;
 
+    pub fn add_beneficiary(ctx: Context<AddBeneficiary>, total_tokens: u64, beneficiary_pubkey: Pubkey) -> Result<()> {
+        let beneficiary_data = &mut ctx.accounts.beneficiary_data;
+        beneficiary_data.beneficiary = beneficiary_pubkey;
+        beneficiary_data.total_tokens = total_tokens;
+        beneficiary_data.claimed_tokens = 0;
+        Ok(())
+    }
+    
     pub fn initialize(ctx: Context<Initialize>, amount: u64, decimals: u8) -> Result<()> {
         let config = &mut ctx.accounts.config;
         
@@ -99,6 +109,22 @@ pub mod simple_token_vesting {
         Ok(())
     }
 
+}
+
+#[derive(Accounts)]
+pub struct AddBeneficiary<'info> {
+    #[account(
+        init,
+        payer = user,
+        space = 8 + 32 + 8 + 8,
+        seeds = [b"beneficiary_data", user.key().as_ref()],
+        bump,
+    )]
+    pub beneficiary_data: Account<'info, Beneficiary>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
