@@ -13,7 +13,6 @@ pub enum VestingError {
     NothingToClaim,
 }
 
-
 #[program]
 pub mod simple_token_vesting {
 
@@ -38,7 +37,7 @@ pub mod simple_token_vesting {
         let signer = &[&authority_seeds[..]];
         
         let transfer = token::Transfer {
-            from: ctx.accounts.from_token_account.to_account_info(),
+            from: ctx.accounts.admin_token_account.to_account_info(),
             to: ctx.accounts.escrow_wallet.to_account_info(),
             authority: ctx.accounts.authority.to_account_info(),
         };
@@ -64,13 +63,14 @@ pub mod simple_token_vesting {
     }
     
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
-        let beneficiary = &mut ctx.accounts.beneficiary;
+        let beneficiary_data = &mut ctx.accounts.beneficiary_data;
+        let beneficiary_wallet = &mut ctx.accounts.beneficiary_wallet;
         let config = &ctx.accounts.config;
         let config_key = config.key();
 
         let max_claimable =
-            (beneficiary.total_tokens * config.percent_available as u64) / 100;
-        let claimable_now = max_claimable.saturating_sub(beneficiary.claimed_tokens);
+            (beneficiary_data.total_tokens * config.percent_available as u64) / 100;
+        let claimable_now = max_claimable.saturating_sub(beneficiary_data.claimed_tokens);
         
         require!(claimable_now > 0, VestingError::NothingToClaim);
 
@@ -83,7 +83,7 @@ pub mod simple_token_vesting {
 
         let transfer = token::Transfer {
             from: ctx.accounts.escrow_wallet.to_account_info(),
-            to: beneficiary.to_account_info(),
+            to: beneficiary_wallet.to_account_info(),
             authority: ctx.accounts.authority.to_account_info()
         };
 
@@ -93,8 +93,8 @@ pub mod simple_token_vesting {
             signer 
         );
         
-        token::transfer (cpi_ctx, claimable_now);
-        beneficiary.claimed_tokens += claimable_now;        
+        token::transfer (cpi_ctx, claimable_now)?;
+        beneficiary_data.claimed_tokens += claimable_now;        
 
         Ok(())
     }
@@ -127,13 +127,13 @@ pub struct Initialize<'info> {
         seeds = [b"authority"],
         bump,
     )]
-    pub authority: AccountInfo<'info>,
+    pub authority: Signer<'info>, //AccountInfo<'info>,
 
     #[account(mut)]
     pub user: Signer<'info>,
 
     #[account(mut)]
-    pub from_token_account: Account<'info, TokenAccount>,
+    pub admin_token_account: Account<'info, TokenAccount>,
     pub token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -149,11 +149,12 @@ pub struct Claim<'info> {
     pub config: Account<'info, ConfigVesting>,
 
     #[account(
-        seeds = [b"beneficiary"],
+        seeds = [b"beneficiary_data", user.key().as_ref()],
         bump,
     )]
-    pub beneficiary: Account<'info, Beneficiary>,
-    
+    pub beneficiary_data: Account<'info, Beneficiary>,
+    pub beneficiary_wallet: Account<'info, TokenAccount>,
+
     #[account(
     seeds = [b"escrow", config.key().as_ref()],
     bump,
@@ -167,16 +168,14 @@ pub struct Claim<'info> {
         seeds = [b"authority"],
         bump,
     )]
-    pub authority: AccountInfo<'info>,
+    pub authority: Signer<'info>, // AccountInfo<'info>,
 
     #[account(mut)]
     pub user: Signer<'info>,
 
-    #[account(mut)]
     pub token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-
 }
 
 #[derive(Accounts)]
@@ -192,7 +191,7 @@ pub struct Release<'info>{
         seeds = [b"authority"],
         bump,
     )]
-    pub authority: AccountInfo<'info>,
+    pub authority: Signer<'info>, // AccountInfo<'info>,
 }
 
 #[account]
