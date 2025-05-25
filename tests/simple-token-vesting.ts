@@ -13,6 +13,7 @@ describe("simple_token_vesting", () => {
   const programId = new PublicKey("9Dt3WPawaT6Jf2aTxauKRhsmrBAn84zA3Mi5uitaWZs3");
   const program = new Program(idl as Idl, provider);
   const user = Keypair.generate();
+  const beneficiary = Keypair.generate();
 
   let config: PublicKey;
   let escrow_wallet: PublicKey;
@@ -37,24 +38,26 @@ describe("simple_token_vesting", () => {
       signature: airdropSignature,
     })
 
+
     token_mint= await createMint(provider.connection, user, user.publicKey, null, 9);
 
-    admin_token_account = await createAccount(provider.connection, user, token_mint, user.publicKey);
-    beneficiary_wallet = await createAccount(provider.connection, user, token_mint, user.publicKey);
 
-    const [configPda] = findProgramAddressSync([Buffer.from("config_vesting")],programId)
+    admin_token_account = await createAccount(provider.connection, user, token_mint, user.publicKey);
+    beneficiary_wallet = await createAccount(provider.connection, user, token_mint, beneficiary.publicKey);
+
+    const [configPda] = findProgramAddressSync([Buffer.from("config_vesting"), user.publicKey.toBuffer()],programId)
     config = configPda;
     
     const [escrowPda] = findProgramAddressSync([Buffer.from("escrow_wallet"), config.toBuffer()],programId)
     escrow_wallet = escrowPda;
 
-    const [authorityPda] = findProgramAddressSync([Buffer.from("authority")],programId)
+    const [authorityPda] = findProgramAddressSync([Buffer.from("authority"), user.publicKey.toBuffer()],programId)
     authority = authorityPda;
 
     const [beneficiaryDataPda] = findProgramAddressSync(
       [
       Buffer.from("beneficiary_data"), 
-      user.publicKey.toBuffer()
+      beneficiary_wallet.toBuffer()
       ],
       programId
     )
@@ -74,11 +77,12 @@ describe("simple_token_vesting", () => {
       new anchor.BN(beneficiary_wallet.toBuffer()),
       )
       .accounts({
-          beneficiary_data: beneficiary_data,
+          beneficiaryWallet: beneficiary_wallet,
+          beneficiaryData: beneficiary_data,
           user: user,
           systemProgram: SystemProgram.programId,
         })
-        .signers([user])
+//        .signers([user])
         .rpc();
   });
 
