@@ -23,8 +23,8 @@ describe("simple_token_vesting", () => {
   let beneficiary_data: PublicKey;
   let beneficiary_wallet: PublicKey;
   
-  const decimals = 6;
-  const amount = 1000;
+  const decimals = 2;
+  const amount = 5;
 
   const percent = 10;
 
@@ -39,19 +39,18 @@ describe("simple_token_vesting", () => {
     })
 
 
-    token_mint= await createMint(provider.connection, user, user.publicKey, null, 9);
-
+    token_mint = await createMint(provider.connection, user, user.publicKey, null, 9);
 
     admin_token_account = await createAccount(provider.connection, user, token_mint, user.publicKey);
     beneficiary_wallet = await createAccount(provider.connection, user, token_mint, beneficiary.publicKey);
 
-    const [configPda] = findProgramAddressSync([Buffer.from("config_vesting"), user.publicKey.toBuffer()],programId)
+    const [configPda] = findProgramAddressSync([Buffer.from("config_vesting"), token_mint.toBuffer()],programId)
     config = configPda;
     
-    const [escrowPda] = findProgramAddressSync([Buffer.from("escrow_wallet"), config.toBuffer()],programId)
+    const [escrowPda] = findProgramAddressSync([Buffer.from("escrow"), config.toBuffer()],programId)
     escrow_wallet = escrowPda;
 
-    const [authorityPda] = findProgramAddressSync([Buffer.from("authority"), user.publicKey.toBuffer()],programId)
+    const [authorityPda] = findProgramAddressSync([Buffer.from("authority"), token_mint.toBuffer()],programId)
     authority = authorityPda;
 
     const [beneficiaryDataPda] = findProgramAddressSync(
@@ -64,12 +63,29 @@ describe("simple_token_vesting", () => {
 
     beneficiary_data = beneficiaryDataPda;
 
-    await mintTo(provider.connection, user, token_mint, admin_token_account, user, 1500);
+    await mintTo(provider.connection, user, token_mint, admin_token_account, user, 15000000);
+
+    await program.methods
+      .initializeAccounts()
+      .accounts({
+          config: config,
+          escrowWallet: escrow_wallet,
+          beneficiaryData: beneficiary_data,
+          beneficiaryWallet: beneficiary_wallet,
+          authority: authority,
+          user: user.publicKey,
+          adminTokenAccount: admin_token_account,
+          tokenMint: token_mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
   });
 
   it("Add a beneficiary", async () => {
     
-    const total_tokens = 200;
+    const total_tokens = 5000;
 
     await program.methods
       .addBeneficiary(
@@ -82,17 +98,15 @@ describe("simple_token_vesting", () => {
           user: user,
           systemProgram: SystemProgram.programId,
         })
-//        .signers([user])
         .rpc();
   });
 
   it("Initialize vesting", async () => {
 
     const adminTokenAccountBefore = await getAccount(provider.connection, admin_token_account);
-    const escrowWalletBefore = await getAccount(provider.connection, escrow_wallet);
 
     await program.methods
-      .initialize(
+      .initializeVesting(
       new anchor.BN(amount),
       new anchor.BN(decimals)
       )
@@ -100,7 +114,7 @@ describe("simple_token_vesting", () => {
           config: config,
           escrowWallet: escrow_wallet,
           authority: authority,
-          user: user,
+          user: user.publicKey,
           adminTokenAccount: admin_token_account,
           tokenMint: token_mint,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -111,16 +125,16 @@ describe("simple_token_vesting", () => {
 
     const adminTokenAccountAfter = await getAccount(provider.connection, admin_token_account);
     const escrowWalletAfter = await getAccount(provider.connection, escrow_wallet);
-
+    
     assert.equal(
-      Number(adminTokenAccountBefore.amount) - amount,
-      Number(adminTokenAccountAfter.amount),
+      BigInt(Number(adminTokenAccountBefore.amount)) - (BigInt(amount) * BigInt(10 ** decimals)),
+      BigInt(Number(adminTokenAccountAfter.amount)),
       "Admin token account should decrease"
     );
 
     assert.equal(
-      Number(escrowWalletBefore.amount) + amount,
       Number(escrowWalletAfter.amount),
+      amount * 10 ** decimals,
       "Escrow wallet should increase"
     );
 
@@ -135,6 +149,8 @@ describe("simple_token_vesting", () => {
       .accounts({
           config: config,
           authority: authority,
+          user: user.publicKey,
+          tokenMint: token_mint
         })
         .signers([user])
         .rpc();
@@ -146,11 +162,11 @@ describe("simple_token_vesting", () => {
       .claim()
       .accounts({
           config: config,
-          beneficiary_data: beneficiary_data,
-          beneficiary_wallet: beneficiary_wallet,
+          beneficiaryData: beneficiary_data,
+          beneficiaryWallet: beneficiary_wallet,
           escrowWallet: escrow_wallet,
           authority: authority,
-          user: user,
+          user: user.publicKey,
           tokenMint: token_mint,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,

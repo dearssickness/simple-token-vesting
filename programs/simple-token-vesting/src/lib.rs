@@ -18,6 +18,10 @@ pub mod simple_token_vesting {
 
     use super::*;
 
+    pub fn initialize_accounts(ctx: Context<InitializeAccounts>) -> Result<()> {
+        Ok(())
+    }
+    
     pub fn add_beneficiary(ctx: Context<AddBeneficiary>, total_tokens: u64, beneficiary_wallet: Pubkey) -> Result<()> {
         let beneficiary_data = &mut ctx.accounts.beneficiary_data;
         beneficiary_data.beneficiary_wallet = beneficiary_wallet;
@@ -26,7 +30,7 @@ pub mod simple_token_vesting {
         Ok(())
     }
     
-    pub fn initialize(ctx: Context<Initialize>, amount: u64, decimals: u8) -> Result<()> {
+    pub fn initialize_vesting(ctx: Context<InitializeVesting>, amount: u64, decimals: u8) -> Result<()> {
         let config = &mut ctx.accounts.config;
         
         config.escrow_wallet = ctx.accounts.escrow_wallet.key();
@@ -36,23 +40,14 @@ pub mod simple_token_vesting {
         config.percent_available = 0;
         
         let token_program = ctx.accounts.token_program.to_account_info();
-        let token_key = &ctx.accounts.token_mint.key();
-        
-        let authority_seeds = &[
-        b"authority".as_ref(),
-        token_key.as_ref(),
-        &[ctx.bumps.authority],
-        ];
-        
-        let signer = &[&authority_seeds[..]];
         
         let transfer = token::Transfer {
             from: ctx.accounts.admin_token_account.to_account_info(),
             to: ctx.accounts.escrow_wallet.to_account_info(),
-            authority: ctx.accounts.authority.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new_with_signer(token_program, transfer, signer);
+        let cpi_ctx = CpiContext::new(token_program, transfer);
         
         token::transfer(cpi_ctx, amount * u64::pow(10, decimals as u32))?;
         Ok(())
@@ -76,20 +71,12 @@ pub mod simple_token_vesting {
         let beneficiary_data = &mut ctx.accounts.beneficiary_data;
         let beneficiary_wallet = &mut ctx.accounts.beneficiary_wallet;
         let config = &ctx.accounts.config;
-        let config_key = config.key();
 
         let max_claimable =
             (beneficiary_data.total_tokens * config.percent_available as u64) / 100;
         let claimable_now = max_claimable.saturating_sub(beneficiary_data.claimed_tokens);
         
         require!(claimable_now > 0, VestingError::NothingToClaim);
-
-//        let escrow_wallet_seeds = &[
-//            b"escrow", config_key.as_ref(),
-//            &[ctx.bumps.escrow_wallet]
-//            ];
-//
-//        let signer = &[&escrow_wallet_seeds[..]];
 
         let token_key = &ctx.accounts.token_mint.key();
 
@@ -122,11 +109,58 @@ pub mod simple_token_vesting {
 }
 
 #[derive(Accounts)]
-pub struct AddBeneficiary<'info> {
+pub struct InitializeAccounts<'info> {
     #[account(
         init,
+        seeds = [b"config_vesting", token_mint.key().as_ref()],
+        bump,
+        payer = user,
+        space = 8 + 32 + 32 + 32 + 1 + 1,
+    )]
+    pub config: Account<'info, ConfigVesting>,
+    
+    #[account(
+        init,
+        seeds = [b"escrow", config.key().as_ref()],
+        bump,
+        payer = user,
+        token::mint = token_mint,
+        token::authority = authority 
+    )]
+    pub escrow_wallet: Account<'info, TokenAccount>,
+    
+    #[account(
+        init,
+        seeds = [b"beneficiary_data", beneficiary_wallet.key().as_ref()],
+        bump,
         payer = user,
         space = 8 + 32 + 8 + 8,
+    )]
+    pub beneficiary_data: Account<'info, Beneficiary>,
+
+    #[account(mut)]
+    pub beneficiary_wallet: Account<'info, TokenAccount>,
+
+    /// CHECK: This PDA is used only as a signing authority, no data is read or written.
+    #[account(
+        seeds = [b"authority", token_mint.key().as_ref()],
+        bump,
+    )]
+    pub authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    pub token_mint: Account<'info, Mint>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+
+}
+
+#[derive(Accounts)]
+pub struct AddBeneficiary<'info> {
+    #[account(
+        mut,
         seeds = [b"beneficiary_data", beneficiary_wallet.key().as_ref()],
         bump,
     )]
@@ -140,23 +174,20 @@ pub struct AddBeneficiary<'info> {
 }
 
 #[derive(Accounts)]
-pub struct Initialize<'info> {
+pub struct InitializeVesting<'info> {
     #[account(
-        init,
+        mut,
         seeds = [b"config_vesting", token_mint.key().as_ref()],
         bump,
-        payer = user,
-        space = 8 + 32 + 32 + 32 + 1 + 1,
     )]
     pub config: Account<'info, ConfigVesting>,
     
     #[account(
-    init,
-    seeds = [b"escrow", config.key().as_ref()],
-    bump,
-    payer = user,
-    token::mint = token_mint,
-    token::authority = authority 
+        mut,
+        seeds = [b"escrow", config.key().as_ref()],
+        bump,
+        token::mint = token_mint,
+        token::authority = authority 
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
     
@@ -181,24 +212,28 @@ pub struct Initialize<'info> {
 #[derive(Accounts)]
 pub struct Claim<'info> {
     #[account(
+        mut,
         seeds = [b"config_vesting", token_mint.key().as_ref()],
         bump,
     )]
     pub config: Account<'info, ConfigVesting>,
 
     #[account(
+        mut,
         seeds = [b"beneficiary_data", beneficiary_wallet.key().as_ref()],
         bump,
     )]
     pub beneficiary_data: Account<'info, Beneficiary>,
 
+    #[account(mut)]
     pub beneficiary_wallet: Account<'info, TokenAccount>,
 
     #[account(
-    seeds = [b"escrow", config.key().as_ref()],
-    bump,
-    token::mint = token_mint,
-    token::authority = authority // Or a PDA signer
+        mut,
+        seeds = [b"escrow", config.key().as_ref()],
+        bump,
+        token::mint = token_mint,
+        token::authority = authority // Or a PDA signer
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
     
@@ -209,6 +244,7 @@ pub struct Claim<'info> {
     )]
     pub authority: AccountInfo<'info>,
 
+    #[account(mut)]
     pub user: Signer<'info>,
 
     pub token_mint: Account<'info, Mint>,
@@ -219,6 +255,7 @@ pub struct Claim<'info> {
 #[derive(Accounts)]
 pub struct Release<'info>{
     #[account(
+        mut,
         seeds = [b"config_vesting", token_mint.key().as_ref()],
         bump,
     )]
@@ -229,7 +266,7 @@ pub struct Release<'info>{
         seeds = [b"authority", token_mint.key().as_ref()],
         bump,
     )]
-    pub authority: AccountInfo<'info>, // AccountInfo<'info>,
+    pub authority: AccountInfo<'info>,
     pub user: Signer<'info>,
     pub token_mint: Account<'info, Mint>,
 }
