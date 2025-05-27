@@ -196,7 +196,7 @@ pub struct InitializeVesting<'info> {
         seeds = [b"authority", token_mint.key().as_ref()],
         bump,
     )]
-    pub authority: AccountInfo<'info>, //AccountInfo<'info>,
+    pub authority: AccountInfo<'info>,
 
     #[account(mut)]
     pub user: Signer<'info>,
@@ -233,7 +233,7 @@ pub struct Claim<'info> {
         seeds = [b"escrow", config.key().as_ref()],
         bump,
         token::mint = token_mint,
-        token::authority = authority // Or a PDA signer
+        token::authority = authority
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
     

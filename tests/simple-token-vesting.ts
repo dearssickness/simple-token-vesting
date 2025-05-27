@@ -25,8 +25,8 @@ describe("simple_token_vesting", () => {
   
   const decimals = 2;
   const amount = 5;
-
   const percent = 10;
+  const total_tokens = 5000;
 
   before(async () => {
     const airdropSignature = await provider.connection.requestAirdrop(user.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
@@ -85,8 +85,6 @@ describe("simple_token_vesting", () => {
 
   it("Add a beneficiary", async () => {
     
-    const total_tokens = 5000;
-
     await program.methods
       .addBeneficiary(
       new anchor.BN(total_tokens),
@@ -158,6 +156,8 @@ describe("simple_token_vesting", () => {
 
   it("Claim vesting", async () => {
 
+    const beneficiaryWalletBefore = await getAccount(provider.connection, beneficiary_wallet);
+
     await program.methods
       .claim()
       .accounts({
@@ -173,6 +173,13 @@ describe("simple_token_vesting", () => {
         })
         .signers([user])
         .rpc();
+
+    const beneficiaryWalletAfter = await getAccount(provider.connection, beneficiary_wallet);
+    assert.equal(
+        Number(beneficiaryWalletBefore.amount) + (total_tokens * percent) / 100 ,
+        Number(beneficiaryWalletAfter.amount),
+        "Beneficiary wallet should increase by percent of total_tokens"
+    )
 
     });
 
