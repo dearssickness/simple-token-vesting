@@ -11,6 +11,10 @@ pub enum VestingError {
     InvalidPercentage,
     #[msg("Nothing available to claim.")]
     NothingToClaim,
+    #[msg("Claim before cliff time")]
+    EarlyClaim,
+    #[msg("Claim after vesting time")]
+    LateClaim,
 }
 
 #[program]
@@ -18,7 +22,7 @@ pub mod simple_token_vesting {
 
     use super::*;
 
-    pub fn initialize_accounts(ctx: Context<InitializeAccounts>) -> Result<()> {
+    pub fn initialize_accounts(_ctx: Context<InitializeAccounts>) -> Result<()> {
         Ok(())
     }
     
@@ -30,7 +34,14 @@ pub mod simple_token_vesting {
         Ok(())
     }
     
-    pub fn initialize_vesting(ctx: Context<InitializeVesting>, amount: u64, decimals: u8) -> Result<()> {
+    pub fn initialize_vesting(
+        ctx: Context<InitializeVesting>, 
+        amount: u64, decimals: u8, 
+        start_time: i64,
+        cliff_duration: u64,
+        vesting_duration: u64,
+    ) -> Result<()> {
+
         let config = &mut ctx.accounts.config;
         
         config.escrow_wallet = ctx.accounts.escrow_wallet.key();
@@ -38,7 +49,10 @@ pub mod simple_token_vesting {
         config.token_mint = ctx.accounts.token_mint.key();
         config.decimals = decimals;
         config.percent_available = 0;
-        
+        config.start_time = start_time;
+        config.cliff_duration = cliff_duration;
+        config.vesting_duration = vesting_duration;
+
         let token_program = ctx.accounts.token_program.to_account_info();
         
         let transfer = token::Transfer {
@@ -71,9 +85,31 @@ pub mod simple_token_vesting {
         let beneficiary_data = &mut ctx.accounts.beneficiary_data;
         let beneficiary_wallet = &mut ctx.accounts.beneficiary_wallet;
         let config = &ctx.accounts.config;
+        let start_time = config.start_time;
+        let cliff_time = start_time + config.cliff_duration as i64;
+        let vesting_time = cliff_time + config.vesting_duration as i64;
+        
+        let clock = Clock::get()?;
+        require!(clock.unix_timestamp > cliff_time, VestingError::EarlyClaim);
+        
+//        let percent_available = if 
+//            clock.unix_timestamp >= vesting_time {
+//                100
+//            } else {
+//                config.percent_available
+//            };
+        
+        let percent_available = if clock.unix_timestamp < cliff_time {
+            0
+        } else if clock.unix_timestamp >= vesting_time {
+            100
+        } else {
+            let elapsed = (clock.unix_timestamp - cliff_time) as u64;
+            (elapsed * 100) / config.vesting_duration
+        };
 
         let max_claimable =
-            (beneficiary_data.total_tokens * config.percent_available as u64) / 100;
+            (beneficiary_data.total_tokens * percent_available as u64) / 100;
         let claimable_now = max_claimable.saturating_sub(beneficiary_data.claimed_tokens);
         
         require!(claimable_now > 0, VestingError::NothingToClaim);
@@ -277,7 +313,10 @@ pub struct ConfigVesting {
     pub token_mint: Pubkey,
     pub escrow_wallet: Pubkey,
     pub decimals: u8,
-    pub percent_available: u8  
+    pub percent_available: u8,
+    pub start_time: i64,
+    pub cliff_duration: u64,
+    pub vesting_duration: u64,
 }
 
 #[account]
