@@ -17,6 +17,8 @@ pub enum VestingError {
     LateClaim,
     #[msg("Vesting invoked by admin")]
     VestingInvoked,
+    #[msg("Escrow wallet is empty")]
+    NothingToReclaim
 }
 
 #[program]
@@ -47,6 +49,7 @@ pub mod simple_token_vesting {
         let config = &mut ctx.accounts.config;
         
         config.escrow_wallet = ctx.accounts.escrow_wallet.key();
+        config.admin = ctx.accounts.admin.key();
         config.authority = ctx.accounts.authority.key();
         config.token_mint = ctx.accounts.token_mint.key();
         config.decimals = decimals;
@@ -62,12 +65,53 @@ pub mod simple_token_vesting {
         let transfer = token::Transfer {
             from: ctx.accounts.admin_token_account.to_account_info(),
             to: ctx.accounts.escrow_wallet.to_account_info(),
-            authority: ctx.accounts.user.to_account_info(),
+            authority: ctx.accounts.admin.to_account_info(),
         };
 
         let cpi_ctx = CpiContext::new(token_program, transfer);
         
         token::transfer(cpi_ctx, amount * u64::pow(10, decimals as u32))?;
+        Ok(())
+    }
+    
+    pub fn invoke_vesting(ctx: Context<InvokeVesting>, ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.vesting_invoked = true;
+        
+        let token_key = &ctx.accounts.token_mint.key();
+        let authority = &ctx.accounts.authority;
+
+        let authority_seeds = &[
+        b"authority".as_ref(),
+        token_key.as_ref(),
+        &[ctx.bumps.authority],
+        ];
+        
+        let signer = &[&authority_seeds[..]];
+
+        require!(
+            ctx.accounts.admin.key() == config.admin,
+            VestingError::Unauthorized
+        );
+
+        let escrow_wallet = &mut ctx.accounts.escrow_wallet;
+        let admin_token_account = &mut ctx.accounts.admin_token_account;
+        
+        let transfer = token::Transfer{
+            from: escrow_wallet.to_account_info(), 
+            to: admin_token_account.to_account_info(), 
+            authority: authority.to_account_info()
+        };
+        
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(), 
+            transfer, 
+            signer
+        );
+
+        require!(escrow_wallet.amount > 0, VestingError::NothingToReclaim);
+        token::transfer(cpi_ctx, escrow_wallet.amount)?;
+
         Ok(())
     }
     
@@ -79,7 +123,7 @@ pub mod simple_token_vesting {
         let config = &mut ctx.accounts.config;
         
         require!(
-            ctx.accounts.authority.key() == config.authority,
+            ctx.accounts.admin.key() == config.admin,
             VestingError::Unauthorized
         );
         
@@ -102,7 +146,7 @@ pub mod simple_token_vesting {
 
         require!(vesting_invoked == false, VestingError::VestingInvoked);
         require!(
-            ctx.accounts.authority.key() == config.authority,
+            ctx.accounts.admin.key() == config.admin,
             VestingError::Unauthorized
         ); 
         require!(percent <= 100, VestingError::InvalidPercentage);
@@ -110,22 +154,15 @@ pub mod simple_token_vesting {
         let clock = Clock::get()?;
         require!(clock.unix_timestamp > cliff_time, VestingError::EarlyClaim);
         
-        let percent_available = if auto_vesting == false {
-           if clock.unix_timestamp >= vesting_time {
-                100
-            } else {
-                percent
-            }
-        } else {
-            if clock.unix_timestamp < cliff_time {
-                0
-            } else if clock.unix_timestamp >= vesting_time {
-                100
-            } else {
-                let elapsed = (clock.unix_timestamp - cliff_time) as u64;
-                ((elapsed * 100) / config.vesting_duration) as u8
-            }
-        };
+        let percent_available = match (auto_vesting, clock.unix_timestamp) {
+                (_, t) if t >= vesting_time => 100,
+                (false, _) => percent,
+                (true, t) if t < cliff_time => 0,
+                (true, t) => {
+                    let elapsed = (t - cliff_time) as u64;
+                    ((elapsed * 100) / config.vesting_duration) as u8
+                    }
+            };
 
         config.percent_available = percent_available;
 
@@ -188,7 +225,7 @@ pub struct InitializeAccounts<'info> {
         seeds = [b"config_vesting", token_mint.key().as_ref()],
         bump,
         payer = user,
-        space = 8 + 32 + 32 + 32 + 1 + 1,
+        space = 8 + 32 + 32 + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 1 + 1,
     )]
     pub config: Account<'info, ConfigVesting>,
     
@@ -272,7 +309,7 @@ pub struct InitializeVesting<'info> {
     pub authority: AccountInfo<'info>,
 
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub admin: Signer<'info>,
 
     #[account(mut)]
     pub admin_token_account: Account<'info, TokenAccount>,
@@ -340,7 +377,7 @@ pub struct Release<'info>{
         bump,
     )]
     pub authority: AccountInfo<'info>,
-    pub user: Signer<'info>,
+    pub admin: Signer<'info>,
     pub token_mint: Account<'info, Mint>,
 }
 
@@ -358,12 +395,47 @@ pub struct Reconfigure<'info>{
         bump,
     )]
     pub authority: AccountInfo<'info>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
     pub token_mint: Account<'info, Mint>,
 }
 
+#[derive(Accounts)]
+pub struct InvokeVesting<'info>{
+    #[account(
+        mut,
+        seeds = [b"config_vesting", token_mint.key().as_ref()],
+        bump,
+    )]
+    pub config: Account<'info, ConfigVesting>,
+
+    #[account(
+        mut,
+        seeds = [b"escrow", config.key().as_ref()],
+        bump,
+        token::mint = token_mint,
+        token::authority = authority 
+    )]
+    pub escrow_wallet: Account<'info, TokenAccount>,
+
+    #[account(
+        seeds = [b"authority", token_mint.key().as_ref()],
+        bump,
+    )]
+    pub authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(mut)]
+    pub admin_token_account: Account<'info, TokenAccount>,
+    pub token_mint: Account<'info, Mint>,
+    pub token_program: Program<'info, Token>,
+}
 #[account]
 pub struct ConfigVesting {
     pub authority: Pubkey, 
+    pub admin: Pubkey, 
     pub token_mint: Pubkey,
     pub escrow_wallet: Pubkey,
     pub decimals: u8,
