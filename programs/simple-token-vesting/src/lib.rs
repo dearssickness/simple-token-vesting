@@ -15,6 +15,8 @@ pub enum VestingError {
     EarlyClaim,
     #[msg("Claim after vesting time")]
     LateClaim,
+    #[msg("Vesting invoked by admin")]
+    VestingInvoked,
 }
 
 #[program]
@@ -52,6 +54,8 @@ pub mod simple_token_vesting {
         config.start_time = start_time;
         config.cliff_duration = cliff_duration;
         config.vesting_duration = vesting_duration;
+        config.vesting_invoked = false;
+        config.auto_vesting = false;
 
         let token_program = ctx.accounts.token_program.to_account_info();
         
@@ -67,16 +71,63 @@ pub mod simple_token_vesting {
         Ok(())
     }
     
-    pub fn release(ctx: Context<Release>, percent: u8) -> Result<()> {
+    pub fn reconfigure_vesting(
+        ctx: Context<Reconfigure>, 
+        auto_vesting: bool, 
+        vesting_invoked: bool
+    ) -> Result<()>{
         let config = &mut ctx.accounts.config;
+        
+        require!(
+            ctx.accounts.authority.key() == config.authority,
+            VestingError::Unauthorized
+        );
+        
+        config.auto_vesting = auto_vesting;
+        config.vesting_invoked = vesting_invoked;
+        Ok(())
+    }
+    
+    pub fn release(
+        ctx: Context<Release>, 
+        percent: u8,
+        auto_vesting: bool,
+        vesting_invoked: bool,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        let start_time = config.start_time;
+        let cliff_time = start_time + config.cliff_duration as i64;
+        let vesting_time = cliff_time + config.vesting_duration as i64;
+        let auto_vesting = auto_vesting;
 
+        require!(vesting_invoked == false, VestingError::VestingInvoked);
         require!(
             ctx.accounts.authority.key() == config.authority,
             VestingError::Unauthorized
         ); 
-
         require!(percent <= 100, VestingError::InvalidPercentage);
-        config.percent_available = percent;
+
+        let clock = Clock::get()?;
+        require!(clock.unix_timestamp > cliff_time, VestingError::EarlyClaim);
+        
+        let percent_available = if auto_vesting == false {
+           if clock.unix_timestamp >= vesting_time {
+                100
+            } else {
+                percent
+            }
+        } else {
+            if clock.unix_timestamp < cliff_time {
+                0
+            } else if clock.unix_timestamp >= vesting_time {
+                100
+            } else {
+                let elapsed = (clock.unix_timestamp - cliff_time) as u64;
+                ((elapsed * 100) / config.vesting_duration) as u8
+            }
+        };
+
+        config.percent_available = percent_available;
 
         Ok(())
     }
@@ -85,29 +136,15 @@ pub mod simple_token_vesting {
         let beneficiary_data = &mut ctx.accounts.beneficiary_data;
         let beneficiary_wallet = &mut ctx.accounts.beneficiary_wallet;
         let config = &ctx.accounts.config;
-        let start_time = config.start_time;
-        let cliff_time = start_time + config.cliff_duration as i64;
-        let vesting_time = cliff_time + config.vesting_duration as i64;
+        let vesting_invoked = config.vesting_invoked;
+        let percent_available = config.percent_available;
+        let cliff_time = config.start_time + config.cliff_duration as i64;
         
+        require!(vesting_invoked == false, VestingError::VestingInvoked);
+
         let clock = Clock::get()?;
         require!(clock.unix_timestamp > cliff_time, VestingError::EarlyClaim);
         
-//        let percent_available = if 
-//            clock.unix_timestamp >= vesting_time {
-//                100
-//            } else {
-//                config.percent_available
-//            };
-        
-        let percent_available = if clock.unix_timestamp < cliff_time {
-            0
-        } else if clock.unix_timestamp >= vesting_time {
-            100
-        } else {
-            let elapsed = (clock.unix_timestamp - cliff_time) as u64;
-            (elapsed * 100) / config.vesting_duration
-        };
-
         let max_claimable =
             (beneficiary_data.total_tokens * percent_available as u64) / 100;
         let claimable_now = max_claimable.saturating_sub(beneficiary_data.claimed_tokens);
@@ -307,6 +344,23 @@ pub struct Release<'info>{
     pub token_mint: Account<'info, Mint>,
 }
 
+#[derive(Accounts)]
+pub struct Reconfigure<'info>{
+    #[account(
+        mut,
+        seeds = [b"config_vesting", token_mint.key().as_ref()],
+        bump,
+    )]
+    pub config: Account<'info, ConfigVesting>,
+
+    #[account(
+        seeds = [b"authority", token_mint.key().as_ref()],
+        bump,
+    )]
+    pub authority: AccountInfo<'info>,
+    pub token_mint: Account<'info, Mint>,
+}
+
 #[account]
 pub struct ConfigVesting {
     pub authority: Pubkey, 
@@ -317,6 +371,8 @@ pub struct ConfigVesting {
     pub start_time: i64,
     pub cliff_duration: u64,
     pub vesting_duration: u64,
+    pub vesting_invoked: bool,
+    pub auto_vesting: bool,
 }
 
 #[account]
