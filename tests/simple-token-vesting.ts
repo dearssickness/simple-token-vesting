@@ -12,7 +12,7 @@ describe("simple_token_vesting", () => {
 
   const programId = new PublicKey("9Dt3WPawaT6Jf2aTxauKRhsmrBAn84zA3Mi5uitaWZs3");
   const program = new Program(idl as Idl, provider);
-  const user = Keypair.generate();
+  const admin = Keypair.generate();
   const beneficiary = Keypair.generate();
 
   let config: PublicKey;
@@ -26,10 +26,13 @@ describe("simple_token_vesting", () => {
   const decimals = 2;
   const amount = 5;
   const percent = 10;
-  const total_tokens = 5000;
+  const total_tokens = 500;
+  const startTime = Math.floor(Date.now() / 1000);
+  const cliffDuration = 1; // 1 Seconds obviously for tests to pass!
+  const vestingDuration = 20; // 20 Seconds ^^^^^^^^^^^^^^^^^^^^^^^^^
 
   before(async () => {
-    const airdropSignature = await provider.connection.requestAirdrop(user.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+    const airdropSignature = await provider.connection.requestAirdrop(admin.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
     const latestBlockHash = await provider.connection.getLatestBlockhash()
 
     await provider.connection.confirmTransaction({
@@ -39,10 +42,10 @@ describe("simple_token_vesting", () => {
     })
 
 
-    token_mint = await createMint(provider.connection, user, user.publicKey, null, 9);
+    token_mint = await createMint(provider.connection, admin, admin.publicKey, null, 9);
 
-    admin_token_account = await createAccount(provider.connection, user, token_mint, user.publicKey);
-    beneficiary_wallet = await createAccount(provider.connection, user, token_mint, beneficiary.publicKey);
+    admin_token_account = await createAccount(provider.connection, admin, token_mint, admin.publicKey);
+    beneficiary_wallet = await createAccount(provider.connection, admin, token_mint, beneficiary.publicKey);
 
     const [configPda] = findProgramAddressSync([Buffer.from("config_vesting"), token_mint.toBuffer()],programId)
     config = configPda;
@@ -63,7 +66,7 @@ describe("simple_token_vesting", () => {
 
     beneficiary_data = beneficiaryDataPda;
 
-    await mintTo(provider.connection, user, token_mint, admin_token_account, user, 15000000);
+    await mintTo(provider.connection, admin, token_mint, admin_token_account, admin, 15000000);
 
     await program.methods
       .initializeAccounts()
@@ -73,13 +76,13 @@ describe("simple_token_vesting", () => {
           beneficiaryData: beneficiary_data,
           beneficiaryWallet: beneficiary_wallet,
           authority: authority,
-          user: user.publicKey,
+          admin: admin.publicKey,
           adminTokenAccount: admin_token_account,
           tokenMint: token_mint,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .signers([user])
+        .signers([admin])
         .rpc();
   });
 
@@ -93,7 +96,7 @@ describe("simple_token_vesting", () => {
       .accounts({
           beneficiaryWallet: beneficiary_wallet,
           beneficiaryData: beneficiary_data,
-          user: user,
+          admin: admin,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -106,19 +109,22 @@ describe("simple_token_vesting", () => {
     await program.methods
       .initializeVesting(
       new anchor.BN(amount),
-      new anchor.BN(decimals)
+      new anchor.BN(decimals),
+      new anchor.BN(startTime),
+      new anchor.BN(cliffDuration),
+      new anchor.BN(vestingDuration)
       )
       .accounts({
           config: config,
           escrowWallet: escrow_wallet,
           authority: authority,
-          user: user.publicKey,
+          admin: admin.publicKey,
           adminTokenAccount: admin_token_account,
           tokenMint: token_mint,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .signers([user])
+        .signers([admin])
         .rpc();
 
     const adminTokenAccountAfter = await getAccount(provider.connection, admin_token_account);
@@ -139,18 +145,22 @@ describe("simple_token_vesting", () => {
   });
 
   it("Set percent for beneficiary", async () => {
+    const autoVesting = false;
+    const vestingInvoked = false;
 
     await program.methods
       .release(
-      new anchor.BN(percent)
+      new anchor.BN(percent),
+      autoVesting,
+      vestingInvoked
       )
       .accounts({
           config: config,
           authority: authority,
-          user: user.publicKey,
+          admin: admin.publicKey,
           tokenMint: token_mint
         })
-        .signers([user])
+        .signers([admin])
         .rpc();
   });
 
@@ -166,15 +176,16 @@ describe("simple_token_vesting", () => {
           beneficiaryWallet: beneficiary_wallet,
           escrowWallet: escrow_wallet,
           authority: authority,
-          user: user.publicKey,
+          user: admin.publicKey,
           tokenMint: token_mint,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .signers([user])
+        .signers([admin])
         .rpc();
 
     const beneficiaryWalletAfter = await getAccount(provider.connection, beneficiary_wallet);
+
     assert.equal(
         Number(beneficiaryWalletBefore.amount) + (total_tokens * percent) / 100 ,
         Number(beneficiaryWalletAfter.amount),
@@ -182,5 +193,42 @@ describe("simple_token_vesting", () => {
     )
 
     });
+
+it("Invoke vesting", async () => {
+
+    await program.methods
+      .invokeVesting()
+      .accounts({
+          config: config,
+          escrowWallet: escrow_wallet,
+          authority: authority,
+          admin: admin.publicKey,
+          adminTokenAccount: admin_token_account,
+          tokenMint: token_mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([admin])
+        .rpc();
+
+    });
+
+it("Reconfigure vesting", async () => {
+    const autoVesting = true;
+    const vestingInvoked = false;
+
+    await program.methods
+      .reconfigureVesting(
+      autoVesting,
+      vestingInvoked
+      )
+      .accounts({
+          config: config,
+          authority: authority,
+          admin: admin.publicKey,
+          tokenMint: token_mint,
+        })
+        .signers([admin])
+        .rpc();
+});
 
 });

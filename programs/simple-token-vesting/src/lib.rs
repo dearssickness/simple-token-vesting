@@ -40,7 +40,8 @@ pub mod simple_token_vesting {
     
     pub fn initialize_vesting(
         ctx: Context<InitializeVesting>, 
-        amount: u64, decimals: u8, 
+        amount: u64, 
+        decimals: u8, 
         start_time: i64,
         cliff_duration: u64,
         vesting_duration: u64,
@@ -224,7 +225,7 @@ pub struct InitializeAccounts<'info> {
         init,
         seeds = [b"config_vesting", token_mint.key().as_ref()],
         bump,
-        payer = user,
+        payer = admin,
         space = 8 + 32 + 32 + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 1 + 1,
     )]
     pub config: Account<'info, ConfigVesting>,
@@ -233,7 +234,7 @@ pub struct InitializeAccounts<'info> {
         init,
         seeds = [b"escrow", config.key().as_ref()],
         bump,
-        payer = user,
+        payer = admin,
         token::mint = token_mint,
         token::authority = authority 
     )]
@@ -243,7 +244,7 @@ pub struct InitializeAccounts<'info> {
         init,
         seeds = [b"beneficiary_data", beneficiary_wallet.key().as_ref()],
         bump,
-        payer = user,
+        payer = admin,
         space = 8 + 32 + 8 + 8,
     )]
     pub beneficiary_data: Account<'info, Beneficiary>,
@@ -259,12 +260,11 @@ pub struct InitializeAccounts<'info> {
     pub authority: AccountInfo<'info>,
 
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub admin: Signer<'info>,
 
     pub token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-
 }
 
 #[derive(Accounts)]
@@ -279,7 +279,7 @@ pub struct AddBeneficiary<'info> {
     pub beneficiary_wallet: Account<'info, TokenAccount>,
 
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -316,7 +316,6 @@ pub struct InitializeVesting<'info> {
     pub token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-
 }
 
 #[derive(Accounts)]
@@ -390,6 +389,7 @@ pub struct Reconfigure<'info>{
     )]
     pub config: Account<'info, ConfigVesting>,
 
+    /// CHECK: This PDA is used only as a signing authority, no data is read or written.
     #[account(
         seeds = [b"authority", token_mint.key().as_ref()],
         bump,
@@ -418,6 +418,7 @@ pub struct InvokeVesting<'info>{
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
 
+    /// CHECK: This PDA is used only as a signing authority, no data is read or written.
     #[account(
         seeds = [b"authority", token_mint.key().as_ref()],
         bump,
@@ -432,6 +433,7 @@ pub struct InvokeVesting<'info>{
     pub token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
 }
+
 #[account]
 pub struct ConfigVesting {
     pub authority: Pubkey, 
