@@ -49,11 +49,11 @@ pub fn handler(ctx: Context<Claim>) -> Result<()> {
     let beneficiary_data = &mut ctx.accounts.beneficiary_data;
     let beneficiary_wallet = &mut ctx.accounts.beneficiary_wallet;
     let config = &ctx.accounts.config;
-    let vesting_invoked = config.vesting_invoked;
+    let vesting_revoked = config.vesting_revoked;
     let percent_available = config.percent_available;
     let cliff_time = config.start_time + config.cliff_duration as i64;
     
-    require!(!vesting_invoked, VestingError::VestingInvoked);
+    require!(!vesting_revoked, VestingError::VestingRevoked);
 
     let clock = Clock::get()?;
     require!(clock.unix_timestamp > cliff_time, VestingError::EarlyClaim);

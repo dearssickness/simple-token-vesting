@@ -25,7 +25,7 @@ pub struct Reconfigure<'info> {
 pub fn handler(
     ctx: Context<Reconfigure>,
     auto_vesting: bool,
-    vesting_invoked: bool,
+    vesting_revoked: bool,
 ) -> Result<()> {
     let config = &mut ctx.accounts.config;
     
@@ -35,6 +35,6 @@ pub fn handler(
     );
     
     config.auto_vesting = auto_vesting;
-    config.vesting_invoked = vesting_invoked;
+    config.vesting_revoked = vesting_revoked;
     Ok(())
 }

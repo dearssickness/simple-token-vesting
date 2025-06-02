@@ -25,14 +25,14 @@ pub fn handler(
     ctx: Context<Release>,
     percent: u8,
     auto_vesting: bool,
-    vesting_invoked: bool,
+    vesting_revoked: bool,
 ) -> Result<()> {
     let config = &mut ctx.accounts.config;
     let start_time = config.start_time;
     let cliff_time = start_time + config.cliff_duration as i64;
     let vesting_time = cliff_time + config.vesting_duration as i64;
 
-    require!(!vesting_invoked, VestingError::VestingInvoked);
+    require!(!vesting_revoked, VestingError::VestingRevoked);
     require!(
         ctx.accounts.admin.key() == config.admin,
         VestingError::Unauthorized

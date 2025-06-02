@@ -11,6 +11,6 @@ pub struct ConfigVesting {
     pub start_time: i64,
     pub cliff_duration: u64,
     pub vesting_duration: u64,
-    pub vesting_invoked: bool,
+    pub vesting_revoked: bool,
     pub auto_vesting: bool,
 }

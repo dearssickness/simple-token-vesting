@@ -43,25 +43,25 @@ pub mod simple_token_vesting {
         )
     }
 
-    pub fn invoke_vesting(ctx: Context<InvokeVesting>) -> Result<()> {
-        instructions::invoke_vesting::handler(ctx)
+    pub fn revoke_vesting(ctx: Context<RevokeVesting>) -> Result<()> {
+        instructions::revoke_vesting::handler(ctx)
     }
 
     pub fn reconfigure_vesting(
         ctx: Context<Reconfigure>,
         auto_vesting: bool,
-        vesting_invoked: bool,
+        vesting_revoked: bool,
     ) -> Result<()> {
-        instructions::reconfigure::handler(ctx, auto_vesting, vesting_invoked)
+        instructions::reconfigure::handler(ctx, auto_vesting, vesting_revoked)
     }
 
     pub fn release(
         ctx: Context<Release>,
         percent: u8,
         auto_vesting: bool,
-        vesting_invoked: bool,
+        vesting_revoked: bool,
     ) -> Result<()> {
-        instructions::release::handler(ctx, percent, auto_vesting, vesting_invoked)
+        instructions::release::handler(ctx, percent, auto_vesting, vesting_revoked)
     }
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {

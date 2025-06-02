@@ -56,7 +56,7 @@ pub fn handler(
     config.start_time = start_time;
     config.cliff_duration = cliff_duration;
     config.vesting_duration = vesting_duration;
-    config.vesting_invoked = false;
+    config.vesting_revoked = false;
     config.auto_vesting = false;
 
     let token_program = ctx.accounts.token_program.to_account_info();

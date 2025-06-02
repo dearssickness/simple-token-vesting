@@ -146,13 +146,13 @@ describe("simple_token_vesting", () => {
 
   it("Set percent for beneficiary", async () => {
     const autoVesting = false;
-    const vestingInvoked = false;
+    const vestingRevoked = false;
 
     await program.methods
       .release(
       new anchor.BN(percent),
       autoVesting,
-      vestingInvoked
+      vestingRevoked
       )
       .accounts({
           config: config,
@@ -194,10 +194,10 @@ describe("simple_token_vesting", () => {
 
     });
 
-it("Invoke vesting", async () => {
+it("Revoke vesting", async () => {
 
     await program.methods
-      .invokeVesting()
+      .revokeVesting()
       .accounts({
           config: config,
           escrowWallet: escrow_wallet,
@@ -214,12 +214,12 @@ it("Invoke vesting", async () => {
 
 it("Reconfigure vesting", async () => {
     const autoVesting = true;
-    const vestingInvoked = false;
+    const vestingRevoked = false;
 
     await program.methods
       .reconfigureVesting(
       autoVesting,
-      vestingInvoked
+      vestingRevoked
       )
       .accounts({
           config: config,

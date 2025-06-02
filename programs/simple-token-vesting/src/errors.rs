@@ -12,8 +12,8 @@ pub enum VestingError {
     EarlyClaim,
     #[msg("Claim after vesting time")]
     LateClaim,
-    #[msg("Vesting invoked by admin")]
-    VestingInvoked,
+    #[msg("Vesting revoked by admin")]
+    VestingRevoked,
     #[msg("Escrow wallet is empty")]
     NothingToReclaim,
 }

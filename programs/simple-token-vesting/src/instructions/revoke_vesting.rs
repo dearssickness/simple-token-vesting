@@ -3,7 +3,7 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::{errors::VestingError, state::*};
 
 #[derive(Accounts)]
-pub struct InvokeVesting<'info> {
+pub struct RevokeVesting<'info> {
     #[account(
         mut,
         seeds = [b"config_vesting", token_mint.key().as_ref()],
@@ -36,9 +36,9 @@ pub struct InvokeVesting<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handler(ctx: Context<InvokeVesting>) -> Result<()> {
+pub fn handler(ctx: Context<RevokeVesting>) -> Result<()> {
     let config = &mut ctx.accounts.config;
-    config.vesting_invoked = true;
+    config.vesting_revoked = true;
     
     let token_key = &ctx.accounts.token_mint.key();
     let authority = &ctx.accounts.authority;
