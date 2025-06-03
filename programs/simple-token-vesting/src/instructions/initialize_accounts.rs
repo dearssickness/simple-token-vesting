@@ -22,18 +22,6 @@ pub struct InitializeAccounts<'info> {
         token::authority = authority 
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
-    
-    #[account(
-        init,
-        seeds = [b"beneficiary_data", beneficiary_wallet.key().as_ref()],
-        bump,
-        payer = admin,
-        space = 8 + 32 + 8 + 8,
-    )]
-    pub beneficiary_data: Account<'info, Beneficiary>,
-
-    #[account(mut)]
-    pub beneficiary_wallet: Account<'info, TokenAccount>,
 
     /// CHECK: This PDA is used only as a signing authority, no data is read or written.
     #[account(

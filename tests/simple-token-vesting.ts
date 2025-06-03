@@ -73,8 +73,6 @@ describe("simple_token_vesting", () => {
       .accounts({
           config: config,
           escrowWallet: escrow_wallet,
-          beneficiaryData: beneficiary_data,
-          beneficiaryWallet: beneficiary_wallet,
           authority: authority,
           admin: admin.publicKey,
           adminTokenAccount: admin_token_account,

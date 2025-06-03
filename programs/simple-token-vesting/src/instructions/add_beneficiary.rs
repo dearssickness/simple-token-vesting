@@ -5,12 +5,15 @@ use crate::state::*;
 #[derive(Accounts)]
 pub struct AddBeneficiary<'info> {
     #[account(
-        mut,
+        init,
         seeds = [b"beneficiary_data", beneficiary_wallet.key().as_ref()],
         bump,
+        payer = admin,
+        space = 8 + 32 + 8 + 8,
     )]
     pub beneficiary_data: Account<'info, Beneficiary>,
 
+    #[account(mut)]
     pub beneficiary_wallet: Account<'info, TokenAccount>,
 
     #[account(mut)]
